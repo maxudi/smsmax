@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMS Control Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        display: ['Poppins', 'sans-serif'],
+                        body: ['Manrope', 'sans-serif']
+                    },
+                    colors: {
+                        panel: '#111827',
+                        panelSoft: '#1f2937',
+                        ink: '#e5e7eb',
+                        accent: '#06b6d4',
+                        accentSoft: '#22d3ee',
+                        good: '#10b981',
+                        warn: '#f59e0b',
+                        bad: '#ef4444'
+                    },
+                    boxShadow: {
+                        glow: '0 0 0 1px rgba(34,211,238,.25), 0 10px 30px rgba(0,0,0,.45)'
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .glass {
+            background: linear-gradient(135deg, rgba(17,24,39,.92), rgba(31,41,55,.78));
+            backdrop-filter: blur(8px);
+        }
+    </style>
+</head>
+<body class="h-full bg-slate-950 text-ink font-body">
+    <div class="fixed inset-0 -z-10 bg-[radial-gradient(circle_at_10%_10%,rgba(34,211,238,.2),transparent_30%),radial-gradient(circle_at_90%_20%,rgba(16,185,129,.18),transparent_30%),radial-gradient(circle_at_50%_90%,rgba(245,158,11,.18),transparent_34%)]"></div>
+
+    <main x-data="smsApp()" x-init="boot()" class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <header class="mb-6 rounded-2xl glass p-6 shadow-glow border border-cyan-900/60">
+            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h1 class="font-display text-2xl sm:text-3xl font-semibold tracking-wide">SMS Control Center</h1>
+                    <p class="text-slate-300 mt-1">Disparo inteligente via Traccar Cloud com fila, cadencia e monitoramento em tempo real.</p>
+                </div>
+                <div class="grid grid-cols-2 gap-3 text-sm">
+                    <div class="rounded-xl bg-panelSoft/80 px-4 py-3 border border-slate-700">
+                        <p class="text-slate-400">Fila</p>
+                        <p class="font-semibold" :class="queue.running ? 'text-good' : 'text-slate-200'" x-text="queue.running ? 'Ativa' : 'Inativa'"></p>
+                    </div>
+                    <div class="rounded-xl bg-panelSoft/80 px-4 py-3 border border-slate-700">
+                        <p class="text-slate-400">Enviados</p>
+                        <p class="font-semibold text-accentSoft"><span x-text="queue.sent"></span> / <span x-text="queue.total"></span></p>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <section class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div class="xl:col-span-2 space-y-6">
+                <div class="rounded-2xl glass p-5 border border-slate-800 shadow-xl">
+                    <h2 class="font-display text-lg mb-4">Compositor de Campanha</h2>
+
+                    <label class="block text-sm text-slate-300 mb-2">Mensagem</label>
+                    <textarea x-model="message" rows="5" class="w-full rounded-xl bg-slate-900/70 border border-slate-700 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-accent" placeholder="Digite o texto do SMS"></textarea>
+
+                    <div class="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                        <span class="rounded-full bg-slate-800 px-3 py-1 border border-slate-700">Caracteres: <strong x-text="message.length"></strong></span>
+                        <span class="rounded-full bg-slate-800 px-3 py-1 border border-slate-700">Segmentos SMS: <strong x-text="segments()"></strong></span>
+                        <span x-show="message.length > 160" class="rounded-full bg-warn/20 text-warn px-3 py-1 border border-warn/40">Mensagem acima de 160 caracteres</span>
+                    </div>
+
+                    <label class="block text-sm text-slate-300 mt-5 mb-2">Destinatarios (um por linha)</label>
+                    <textarea x-model="recipientsText" rows="6" class="w-full rounded-xl bg-slate-900/70 border border-slate-700 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-accent" placeholder="+5534999999999"></textarea>
+
+                    <div class="mt-4 flex flex-col md:flex-row gap-3 md:items-end">
+                        <div class="w-full md:w-64">
+                            <label class="block text-sm text-slate-300 mb-2">Intervalo entre SMS (segundos)</label>
+                            <input type="number" min="0" x-model.number="intervalSeconds" class="w-full rounded-xl bg-slate-900/70 border border-slate-700 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-accent" />
+                        </div>
+                        <div class="flex gap-2">
+                            <button @click="startQueue" :disabled="queue.running || isLoading" class="rounded-xl bg-accent hover:bg-cyan-400 text-slate-950 px-4 py-2.5 font-semibold disabled:opacity-50">Iniciar Fila</button>
+                            <button @click="togglePause" :disabled="!queue.running" class="rounded-xl bg-warn/90 hover:bg-warn text-slate-950 px-4 py-2.5 font-semibold disabled:opacity-50" x-text="queue.paused ? 'Retomar' : 'Pausar'"></button>
+                            <button @click="cancelQueue" :disabled="!queue.running" class="rounded-xl bg-bad/90 hover:bg-bad text-white px-4 py-2.5 font-semibold disabled:opacity-50">Cancelar</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rounded-2xl glass p-5 border border-slate-800 shadow-xl">
+                    <h2 class="font-display text-lg mb-4">Progresso da Fila</h2>
+                    <div class="w-full h-3 rounded-full bg-slate-800 border border-slate-700 overflow-hidden">
+                        <div class="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 transition-all duration-500" :style="`width:${queue.progress_percent || 0}%`"></div>
+                    </div>
+                    <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                        <div class="rounded-xl bg-slate-900/60 p-3 border border-slate-700">
+                            <p class="text-slate-400">Enviados</p>
+                            <p class="font-semibold" x-text="`${queue.sent} de ${queue.total}`"></p>
+                        </div>
+                        <div class="rounded-xl bg-slate-900/60 p-3 border border-slate-700">
+                            <p class="text-slate-400">Falhas</p>
+                            <p class="font-semibold text-bad" x-text="queue.failed"></p>
+                        </div>
+                        <div class="rounded-xl bg-slate-900/60 p-3 border border-slate-700">
+                            <p class="text-slate-400">Aguardando</p>
+                            <p class="font-semibold text-warn"><span x-text="queue.waiting_seconds || 0"></span>s</p>
+                        </div>
+                        <div class="rounded-xl bg-slate-900/60 p-3 border border-slate-700">
+                            <p class="text-slate-400">Atual</p>
+                            <p class="font-semibold truncate" x-text="queue.current_to || '-' "></p>
+                        </div>
+                    </div>
+                    <p x-show="queue.last_error" class="mt-3 text-sm text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2" x-text="queue.last_error"></p>
+                </div>
+
+                <div class="rounded-2xl glass p-5 border border-slate-800 shadow-xl">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="font-display text-lg">Historico de Envios</h2>
+                        <button @click="loadLogs" class="text-sm rounded-lg border border-slate-600 px-3 py-1.5 hover:border-accent">Atualizar</button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="text-left text-slate-400 border-b border-slate-700">
+                                    <th class="pb-2">Data</th>
+                                    <th class="pb-2">Telefone</th>
+                                    <th class="pb-2">Status</th>
+                                    <th class="pb-2">Resposta</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="item in logs" :key="item.id">
+                                    <tr class="border-b border-slate-800">
+                                        <td class="py-2" x-text="formatDate(item.created_at)"></td>
+                                        <td class="py-2" x-text="item.phone"></td>
+                                        <td class="py-2">
+                                            <span class="px-2 py-1 rounded-full text-xs border" :class="item.success ? 'bg-green-500/15 border-green-500/40 text-green-300' : 'bg-red-500/15 border-red-500/40 text-red-300'" x-text="item.success ? 'Sucesso' : 'Falha'"></span>
+                                        </td>
+                                        <td class="py-2 max-w-xs truncate" x-text="item.error || item.response_text || '-' "></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="space-y-6">
+                <div class="rounded-2xl glass p-5 border border-slate-800 shadow-xl">
+                    <h2 class="font-display text-lg mb-4">Importar Destinatarios</h2>
+                    <input type="file" @change="onFileSelected" accept=".csv,.txt" class="block w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:border-0 file:rounded-lg file:bg-accent file:text-slate-950 file:font-semibold file:cursor-pointer" />
+                    <button @click="importFile" :disabled="!selectedFile" class="mt-3 w-full rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 px-4 py-2.5 font-semibold disabled:opacity-40">Processar Arquivo</button>
+                </div>
+
+                <div class="rounded-2xl glass p-5 border border-slate-800 shadow-xl">
+                    <h2 class="font-display text-lg mb-4">Agenda de Contatos</h2>
+                    <div class="grid grid-cols-1 gap-2">
+                        <input x-model="newContact.name" placeholder="Nome" class="rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent" />
+                        <input x-model="newContact.phone" placeholder="Telefone" class="rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent" />
+                        <button @click="addContact" class="rounded-lg bg-emerald-500/90 hover:bg-emerald-500 text-slate-950 px-3 py-2 font-semibold">Salvar Contato</button>
+                    </div>
+
+                    <div class="mt-4 max-h-64 overflow-auto space-y-2 pr-1">
+                        <template x-for="contact in contacts" :key="contact.id">
+                            <div class="rounded-lg bg-slate-900/60 border border-slate-700 px-3 py-2 flex items-center justify-between gap-2">
+                                <div>
+                                    <p class="text-sm font-semibold" x-text="contact.name"></p>
+                                    <p class="text-xs text-slate-400" x-text="contact.phone"></p>
+                                </div>
+                                <button @click="appendRecipient(contact.phone)" class="text-xs rounded-md border border-cyan-700 text-cyan-300 px-2 py-1 hover:bg-cyan-500/10">Usar</button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="rounded-2xl glass p-5 border border-slate-800 shadow-xl">
+                    <h2 class="font-display text-lg mb-4">Templates</h2>
+                    <div class="grid grid-cols-1 gap-2">
+                        <input x-model="templateName" placeholder="Nome do template" class="rounded-lg bg-slate-900/70 border border-slate-700 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent" />
+                        <button @click="saveTemplate" class="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-2 font-semibold">Salvar template atual</button>
+                    </div>
+                    <div class="mt-4 max-h-48 overflow-auto space-y-2 pr-1">
+                        <template x-for="tpl in templates" :key="tpl.id">
+                            <div class="rounded-lg bg-slate-900/60 border border-slate-700 px-3 py-2 flex items-center justify-between gap-2">
+                                <div class="min-w-0">
+                                    <p class="text-sm font-semibold truncate" x-text="tpl.name"></p>
+                                    <p class="text-xs text-slate-400 truncate" x-text="tpl.content"></p>
+                                </div>
+                                <button @click="useTemplate(tpl.content)" class="text-xs rounded-md border border-emerald-700 text-emerald-300 px-2 py-1 hover:bg-emerald-500/10">Carregar</button>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </aside>
+        </section>
+
+        <div class="fixed bottom-4 right-4 space-y-2 w-80 z-50">
+            <template x-for="toast in toasts" :key="toast.id">
+                <div class="rounded-xl border px-4 py-3 shadow-lg" :class="toast.type === 'error' ? 'bg-red-500/20 border-red-500/40 text-red-100' : 'bg-cyan-500/20 border-cyan-500/40 text-cyan-50'">
+                    <p class="text-sm" x-text="toast.text"></p>
+                </div>
+            </template>
+        </div>
+    </main>
+
+    <script>
+        function smsApp() {
+            return {
+                isLoading: false,
+                message: '',
+                recipientsText: '',
+                intervalSeconds: 10,
+                selectedFile: null,
+                contacts: [],
+                templates: [],
+                logs: [],
+                templateName: '',
+                newContact: { name: '', phone: '' },
+                queue: {
+                    running: false,
+                    paused: false,
+                    sent: 0,
+                    total: 0,
+                    failed: 0,
+                    waiting_seconds: 0,
+                    current_to: null,
+                    progress_percent: 0,
+                    last_error: null
+                },
+                toasts: [],
+
+                boot() {
+                    this.loadContacts();
+                    this.loadTemplates();
+                    this.loadLogs();
+                    this.pollQueue();
+                    setInterval(() => this.pollQueue(), 1000);
+                },
+
+                segments() {
+                    if (!this.message.length) return 0;
+                    return Math.ceil(this.message.length / 160);
+                },
+
+                toast(text, type = 'info') {
+                    const id = Date.now() + Math.random();
+                    this.toasts.push({ id, text, type });
+                    setTimeout(() => {
+                        this.toasts = this.toasts.filter(t => t.id !== id);
+                    }, 3800);
+                },
+
+                async fetchJson(url, options = {}) {
+                    const res = await fetch(url, options);
+                    if (!res.ok) {
+                        let data = null;
+                        try { data = await res.json(); } catch (_) { data = null; }
+                        throw new Error(data?.detail || `Erro HTTP ${res.status}`);
+                    }
+                    const text = await res.text();
+                    return text ? JSON.parse(text) : {};
+                },
+
+                onFileSelected(event) {
+                    this.selectedFile = event.target.files[0] || null;
+                },
+
+                appendRecipient(phone) {
+                    if (!this.recipientsText.trim()) {
+                        this.recipientsText = phone;
+                        return;
+                    }
+                    if (!this.recipientsText.includes(phone)) {
+                        this.recipientsText += `\n${phone}`;
+                    }
+                },
+
+                async importFile() {
+                    if (!this.selectedFile) return;
+                    try {
+                        const form = new FormData();
+                        form.append('file', this.selectedFile);
+                        const data = await this.fetchJson('/api/contacts/import', { method: 'POST', body: form });
+                        if (data.imported?.length) {
+                            const existing = new Set(this.recipientsText.split('\n').map(s => s.trim()).filter(Boolean));
+                            data.imported.forEach(p => existing.add(p));
+                            this.recipientsText = Array.from(existing).join('\n');
+                        }
+                        this.toast(`Importacao concluida: ${data.count} numero(s).`);
+                    } catch (err) {
+                        this.toast(err.message, 'error');
+                    }
+                },
+
+                async addContact() {
+                    try {
+                        const form = new FormData();
+                        form.append('name', this.newContact.name);
+                        form.append('phone', this.newContact.phone);
+                        await this.fetchJson('/api/contacts', { method: 'POST', body: form });
+                        this.newContact = { name: '', phone: '' };
+                        await this.loadContacts();
+                        this.toast('Contato salvo com sucesso.');
+                    } catch (err) {
+                        this.toast(err.message, 'error');
+                    }
+                },
+
+                async loadContacts() {
+                    this.contacts = await this.fetchJson('/api/contacts');
+                },
+
+                async saveTemplate() {
+                    if (!this.templateName.trim()) {
+                        this.toast('Informe um nome para o template.', 'error');
+                        return;
+                    }
+                    try {
+                        const form = new FormData();
+                        form.append('name', this.templateName);
+                        form.append('content', this.message);
+                        await this.fetchJson('/api/templates', { method: 'POST', body: form });
+                        await this.loadTemplates();
+                        this.toast('Template salvo.');
+                    } catch (err) {
+                        this.toast(err.message, 'error');
+                    }
+                },
+
+                async loadTemplates() {
+                    this.templates = await this.fetchJson('/api/templates');
+                },
+
+                useTemplate(content) {
+                    this.message = content || '';
+                    this.toast('Template carregado no composer.');
+                },
+
+                async startQueue() {
+                    if (!this.message.trim()) {
+                        this.toast('Digite uma mensagem antes de iniciar.', 'error');
+                        return;
+                    }
+                    if (!this.recipientsText.trim()) {
+                        this.toast('Informe ao menos um destinatario.', 'error');
+                        return;
+                    }
+
+                    this.isLoading = true;
+                    try {
+                        const form = new FormData();
+                        form.append('message', this.message);
+                        form.append('recipients', this.recipientsText);
+                        form.append('interval_seconds', String(this.intervalSeconds || 0));
+                        const data = await this.fetchJson('/api/queue/start', { method: 'POST', body: form });
+                        this.toast(`Fila iniciada com ${data.queued} destinatario(s).`);
+                        await this.pollQueue();
+                    } catch (err) {
+                        this.toast(err.message, 'error');
+                    } finally {
+                        this.isLoading = false;
+                    }
+                },
+
+                async togglePause() {
+                    if (!this.queue.running) return;
+                    try {
+                        const route = this.queue.paused ? '/api/queue/resume' : '/api/queue/pause';
+                        await this.fetchJson(route, { method: 'POST' });
+                        await this.pollQueue();
+                    } catch (err) {
+                        this.toast(err.message, 'error');
+                    }
+                },
+
+                async cancelQueue() {
+                    try {
+                        await this.fetchJson('/api/queue/cancel', { method: 'POST' });
+                        this.toast('Fila marcada para cancelamento.');
+                    } catch (err) {
+                        this.toast(err.message, 'error');
+                    }
+                },
+
+                async pollQueue() {
+                    try {
+                        const data = await this.fetchJson('/api/queue/status');
+                        this.queue = data;
+                        if (!data.running && data.total > 0) {
+                            this.loadLogs();
+                        }
+                    } catch (_) {
+                        // Evita quebra da UI em quedas momentaneas de rede.
+                    }
+                },
+
+                async loadLogs() {
+                    this.logs = await this.fetchJson('/api/logs?limit=120');
+                },
+
+                formatDate(value) {
+                    if (!value) return '-';
+                    const date = new Date(value);
+                    if (Number.isNaN(date.getTime())) return value;
+                    return date.toLocaleString('pt-BR');
+                }
+            }
+        }
+    </script>
+</body>
+</html>
